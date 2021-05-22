@@ -7,6 +7,7 @@ import javax.net.ssl.SSLEngine;
 
 import org.fengfei.lanproxy.client.handlers.ClientChannelHandler;
 import org.fengfei.lanproxy.client.handlers.RealServerChannelHandler;
+import org.fengfei.lanproxy.client.handlers.UdpRealServerChannelHandler;
 import org.fengfei.lanproxy.client.listener.ChannelStatusListener;
 import org.fengfei.lanproxy.common.Config;
 import org.fengfei.lanproxy.common.container.Container;
@@ -49,6 +50,8 @@ public class ProxyClientContainer implements Container, ChannelStatusListener {
 
     private Bootstrap realServerBootstrap;
 
+    private Bootstrap udpRealServerBootstrap;
+
     private Config config = Config.getInstance();
 
     private SSLContext sslContext;
@@ -61,12 +64,22 @@ public class ProxyClientContainer implements Container, ChannelStatusListener {
         realServerBootstrap.group(workerGroup);
         realServerBootstrap.channel(NioSocketChannel.class);
         realServerBootstrap.handler(new ChannelInitializer<SocketChannel>() {
-
             @Override
-            public void initChannel(SocketChannel ch) throws Exception {
+            public void initChannel(SocketChannel ch) {
                 ch.pipeline().addLast(new RealServerChannelHandler());
             }
         });
+
+        udpRealServerBootstrap = new Bootstrap();
+        udpRealServerBootstrap.group(workerGroup);
+        udpRealServerBootstrap.channel(NioSocketChannel.class);
+        udpRealServerBootstrap.handler(new ChannelInitializer<SocketChannel>() {
+            @Override
+            protected void initChannel(SocketChannel ch) {
+                ch.pipeline().addLast(new UdpRealServerChannelHandler());
+            }
+        });
+
 
         clientBootstrap = new Bootstrap();
         clientBootstrap.group(workerGroup);
@@ -85,7 +98,7 @@ public class ProxyClientContainer implements Container, ChannelStatusListener {
                 ch.pipeline().addLast(new ProxyMessageDecoder(MAX_FRAME_LENGTH, LENGTH_FIELD_OFFSET, LENGTH_FIELD_LENGTH, LENGTH_ADJUSTMENT, INITIAL_BYTES_TO_STRIP));
                 ch.pipeline().addLast(new ProxyMessageEncoder());
                 ch.pipeline().addLast(new IdleCheckHandler(IdleCheckHandler.READ_IDLE_TIME, IdleCheckHandler.WRITE_IDLE_TIME - 10, 0));
-                ch.pipeline().addLast(new ClientChannelHandler(realServerBootstrap, clientBootstrap, ProxyClientContainer.this));
+                ch.pipeline().addLast(new ClientChannelHandler(realServerBootstrap, clientBootstrap, udpRealServerBootstrap, ProxyClientContainer.this));
             }
         });
     }

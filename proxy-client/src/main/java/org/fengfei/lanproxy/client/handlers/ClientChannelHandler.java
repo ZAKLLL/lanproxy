@@ -1,5 +1,9 @@
 package org.fengfei.lanproxy.client.handlers;
 
+import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.*;
 import org.fengfei.lanproxy.client.ClientChannelMannager;
 import org.fengfei.lanproxy.client.listener.ChannelStatusListener;
 import org.fengfei.lanproxy.client.listener.ProxyChannelBorrowListener;
@@ -8,22 +12,6 @@ import org.fengfei.lanproxy.protocol.Constants;
 import org.fengfei.lanproxy.protocol.ProxyMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import io.netty.bootstrap.Bootstrap;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.SimpleChannelInboundHandler;
-
-import java.io.IOException;
-import java.net.*;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.concurrent.TimeUnit;
 
 /**
  * @author fengfei
@@ -34,20 +22,23 @@ public class ClientChannelHandler extends SimpleChannelInboundHandler<ProxyMessa
 
     private Bootstrap realServerBootstrap;
 
+
     private Bootstrap proxyBootstrap;
 
     private ChannelStatusListener channelStatusListener;
 
-    private static Channel arealServerChannel;
 
-    public ClientChannelHandler(Bootstrap realServerBootstrap, Bootstrap proxyBootstrap, ChannelStatusListener channelStatusListener) {
+    private UdpClientHandler udpClientHandler;
+
+    public ClientChannelHandler(Bootstrap realServerBootstrap, Bootstrap proxyBootstrap, Bootstrap udpRealServerBootStrap, ChannelStatusListener channelStatusListener) {
         this.realServerBootstrap = realServerBootstrap;
         this.proxyBootstrap = proxyBootstrap;
         this.channelStatusListener = channelStatusListener;
+        this.udpClientHandler = new UdpClientHandler(udpRealServerBootStrap);
     }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, ProxyMessage proxyMessage) throws Exception {
+    protected void channelRead0(final ChannelHandlerContext ctx, ProxyMessage proxyMessage) throws Exception {
         logger.debug("recieved proxy message, type is {}", proxyMessage.getType());
         switch (proxyMessage.getType()) {
             case ProxyMessage.TYPE_CONNECT:
@@ -60,32 +51,12 @@ public class ClientChannelHandler extends SimpleChannelInboundHandler<ProxyMessa
                 handleTransferMessage(ctx, proxyMessage);
                 break;
             case ProxyMessage.TYPE_UDP_CONNECT:
-                handleUdpConnect(ctx, proxyMessage);
+                udpClientHandler.handleUdpProxy(ctx, proxyMessage);
                 break;
             default:
                 break;
         }
     }
-
-    private void handleUdpConnect(ChannelHandlerContext ctx, ProxyMessage proxyMessage) throws IOException, InterruptedException {
-        String requestAddress = new String(proxyMessage.getData());
-        String[] ipInfo = requestAddress.split(":");
-        String ip = ipInfo[0];
-        int port = Integer.parseInt(ipInfo[1]);
-
-        //发送一个udp包测试是否打洞成功
-        DatagramSocket socket = new DatagramSocket(9909);
-        while (true) {
-            byte[] bytes = ("connected" + System.currentTimeMillis()).getBytes();
-            socket.send(new DatagramPacket(bytes, bytes.length, new InetSocketAddress(ip, port)));
-            byte[] buf = new byte[1024];
-            DatagramPacket receiveP = new DatagramPacket(buf, 1024);
-            socket.receive(receiveP);
-            System.out.println(new String(receiveP.getData()));
-            TimeUnit.SECONDS.sleep(2);
-        }
-    }
-
 
     private void handleTransferMessage(ChannelHandlerContext proxyCtx, ProxyMessage proxyMessage) {
         Channel realServerChannel = proxyCtx.channel().attr(Constants.NEXT_CHANNEL).get();
