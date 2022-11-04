@@ -15,7 +15,6 @@ import org.fengfei.lanproxy.server.config.ProxyConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.DatagramSocket;
 import java.net.InetAddress;
 
 public class UdpProxyServerContainer implements Container {
@@ -71,7 +70,7 @@ class UdpHandler extends SimpleChannelInboundHandler<DatagramPacket> {
 
         ProxyMessage proxyMessage = new ProxyMessage();
         proxyMessage.setData((address.getHostAddress() + ":" + port + "-" + realServerAddress).getBytes());
-        proxyMessage.setType(ProxyMessage.TYPE_UDP_CONNECT);
+        proxyMessage.setType(ProxyMessage.TYPE_UDP_TO_UDP_CONNECT);
         proxyMessage.setSerialNumber(proxyMessage.getData().length);
         proxyMessage.setUri(clientKey);
         

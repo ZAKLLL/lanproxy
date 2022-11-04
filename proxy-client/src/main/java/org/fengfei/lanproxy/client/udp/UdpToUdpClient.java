@@ -1,3 +1,5 @@
+package org.fengfei.lanproxy.client.udp;
+
 import lombok.SneakyThrows;
 import org.fengfei.lanproxy.protocol.ProxyMessage;
 import org.fengfei.lanproxy.protocol.UdpProxyMessageCodec;
@@ -5,12 +7,13 @@ import org.fengfei.lanproxy.protocol.UdpProxyMessageCodec;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.*;
+import java.util.Arrays;
 import java.util.Scanner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class UdpUserClient {
+public class UdpToUdpClient {
 
     private static final AtomicLong userIdProducer = new AtomicLong(0);
 
@@ -43,20 +46,13 @@ public class UdpUserClient {
         int locolUdpSocketPort = 7771;
         String clientKey = "82e3e7294cfc41b49cbc1a906646e050";
         String targetAddressInfo = "127.0.0.1:8888";
-        Integer localTcpProxyPort = 5555;
 
         Scanner scanner = new Scanner(System.in);
 
         System.out.print("请输入本地Udp发包端口(默认为7771):");
-        String portStr = scanner.next();
+        String portStr = scanner.nextLine();
         if (portStr != null && portStr.trim().length() != 0) {
             locolUdpSocketPort = Integer.parseInt(portStr);
-        }
-
-        System.out.print("请输入本地Tcp代理端口(默认为5555):");
-        String tcpProxyPortStr = scanner.next();
-        if (tcpProxyPortStr != null && tcpProxyPortStr.trim().length() != 0) {
-            localTcpProxyPort = Integer.parseInt(tcpProxyPortStr);
         }
 
 
@@ -67,6 +63,10 @@ public class UdpUserClient {
 
         System.out.println("start connect to center server");
         final DatagramSocket udpSocket = new DatagramSocket(locolUdpSocketPort);
+
+        udpSocket.setSoTimeout(1000 * 1000);
+
+
         byte[] bytes = (clientKey + "-" + targetAddressInfo).getBytes();
 
         //connect to center server
@@ -82,84 +82,46 @@ public class UdpUserClient {
 
         boolean connected = checkUdpPole(receivedPunchingInfo, udpPolePunchingInfo);
         if (connected) {
-            System.out.println("connect success:" + clientAddress);
+            System.out.println("connect success:" + clientAddress.getHostAddress() + ":" + receiveP.getPort());
         }
 
 
-        final int port = receiveP.getPort();
-        //开一个线程用来维持心跳
+        //todo 开一个线程用来维持心跳
 
-        new Thread(new Runnable() {
-            @SneakyThrows
-            @Override
-            public void run() {
-                while (true) {
-                    ProxyMessage requestMsg = new ProxyMessage(ProxyMessage.TYPE_HEARTBEAT, -1, null, null);
-                    byte[] dataBytes = UdpProxyMessageCodec.encode(requestMsg);
-                    udpSocket.send(new DatagramPacket(dataBytes, dataBytes.length, clientAddress, port));
-                    TimeUnit.SECONDS.sleep(5);
-                }
-            }
-        }).start();
 
-        final byte[] byteBuf = new byte[2048];
+        final byte[] byteBuf = new byte[2048 * 10];
 
         final DatagramPacket dataReceiveP = new DatagramPacket(byteBuf, byteBuf.length);
 
 
-        final ConcurrentHashMap<String, Socket> dataSocketMap = new ConcurrentHashMap<>();
-
         new Thread(new Runnable() {
             @SneakyThrows
             @Override
             public void run() {
+                int localUdp2Port = -1;
+                String localUdp2Ip = "";
+
                 while (true) {
                     udpSocket.receive(dataReceiveP);
                     byte[] proxyMsgBytes = new byte[dataReceiveP.getLength()];
                     System.arraycopy(byteBuf, dataReceiveP.getOffset(), proxyMsgBytes, 0, dataReceiveP.getLength());
-                    ProxyMessage msg = UdpProxyMessageCodec.decode(proxyMsgBytes);
-                    if (msg.getType() == ProxyMessage.TYPE_HEARTBEAT) {
-                        System.out.println("receive heartBeatInfo from " + receiveP.getAddress());
-                        continue;
+
+                    System.out.println("---------------------->" + dataReceiveP.getAddress() + ":" + dataReceiveP.getPort());
+                    System.out.println(dataReceiveP.getAddress() + Arrays.toString(proxyMsgBytes));
+                    //代理机器->本地服务
+                    if (dataReceiveP.getPort() == 8769) {
+                        udpSocket.send(new DatagramPacket(proxyMsgBytes, proxyMsgBytes.length, new InetSocketAddress(localUdp2Ip, localUdp2Port)));
+                    } else {
+                        //本地服务->代理服务
+                        localUdp2Port = dataReceiveP.getPort();
+                        localUdp2Ip = dataReceiveP.getAddress().getHostAddress();
+                        udpSocket.send(new DatagramPacket(proxyMsgBytes, proxyMsgBytes.length, new InetSocketAddress(clientAddress, 8769)));
                     }
 
-                    System.out.println(new String(msg.getData()));
-                    Socket socket = dataSocketMap.get(msg.getUri());
-                    if (socket.isConnected() && !socket.isClosed()) {
-                        socket.getOutputStream().write(msg.getData());
-                        socket.getOutputStream().flush();
-                    }
                 }
             }
         }).start();
 
-
-        //开启一个SocketServer 用以接受真实访问数据 使用TCP接受
-        ServerSocket realDateServerSocket = new ServerSocket(localTcpProxyPort);
-        while (true) {
-            final Socket realDateSocket = realDateServerSocket.accept();
-            final String userId = newUserId();
-            dataSocketMap.put(userId, realDateSocket);
-            new Thread(new Runnable() {
-                @SneakyThrows
-                @Override
-                public void run() {
-                    byte[] byteBuf = new byte[2048];
-                    int dataLen;
-                    InputStream inputStream = realDateSocket.getInputStream();
-                    while ((dataLen = inputStream.read(byteBuf)) > 0) {
-
-                        byte[] realDataBytes = new byte[dataLen];
-                        System.arraycopy(byteBuf, 0, realDataBytes, 0, dataLen);
-                        //构造msg
-                        ProxyMessage requestMsg = new ProxyMessage(ProxyMessage.P_TYPE_TRANSFER_UDP, dataLen, userId, realDataBytes);
-                        byte[] dataBytes = UdpProxyMessageCodec.encode(requestMsg);
-                        udpSocket.send(new DatagramPacket(dataBytes, dataBytes.length, clientAddress, port));
-                        System.out.println("发送真实请求数据到:" + receiveP.getAddress());
-                    }
-                }
-            }).start();
-        }
 
     }
 

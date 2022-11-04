@@ -7,6 +7,7 @@ import io.netty.channel.*;
 import org.fengfei.lanproxy.client.ClientChannelMannager;
 import org.fengfei.lanproxy.client.listener.ChannelStatusListener;
 import org.fengfei.lanproxy.client.listener.ProxyChannelBorrowListener;
+import org.fengfei.lanproxy.client.udp.UdpClientHandler;
 import org.fengfei.lanproxy.common.Config;
 import org.fengfei.lanproxy.protocol.Constants;
 import org.fengfei.lanproxy.protocol.ProxyMessage;
@@ -30,11 +31,11 @@ public class ClientChannelHandler extends SimpleChannelInboundHandler<ProxyMessa
 
     private UdpClientHandler udpClientHandler;
 
-    public ClientChannelHandler(Bootstrap realServerBootstrap, Bootstrap proxyBootstrap, Bootstrap udpRealServerBootStrap, ChannelStatusListener channelStatusListener) {
+    public ClientChannelHandler(Bootstrap realServerBootstrap, Bootstrap proxyBootstrap, Bootstrap tcpOverUdpRealServerBootStrap, Bootstrap udpRealServerBootStrap, ChannelStatusListener channelStatusListener) {
         this.realServerBootstrap = realServerBootstrap;
         this.proxyBootstrap = proxyBootstrap;
         this.channelStatusListener = channelStatusListener;
-        this.udpClientHandler = new UdpClientHandler(udpRealServerBootStrap);
+        this.udpClientHandler = new UdpClientHandler(tcpOverUdpRealServerBootStrap, udpRealServerBootStrap);
     }
 
     @Override
@@ -50,8 +51,11 @@ public class ClientChannelHandler extends SimpleChannelInboundHandler<ProxyMessa
             case ProxyMessage.P_TYPE_TRANSFER:
                 handleTransferMessage(ctx, proxyMessage);
                 break;
-            case ProxyMessage.TYPE_UDP_CONNECT:
-                udpClientHandler.handleUdpProxy(ctx, proxyMessage);
+            case ProxyMessage.TYPE_TCP_OVER_UDP_CONNECT:
+                udpClientHandler.handleTcpOverUdpProxy(ctx, proxyMessage);
+                break;
+            case ProxyMessage.TYPE_UDP_TO_UDP_CONNECT:
+                udpClientHandler.handleUdpToUdpProxy(ctx, proxyMessage);
                 break;
             default:
                 break;

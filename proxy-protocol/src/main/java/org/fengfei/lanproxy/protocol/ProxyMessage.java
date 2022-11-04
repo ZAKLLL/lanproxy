@@ -52,13 +52,20 @@ public class ProxyMessage implements Serializable {
     /**
      * UDP Connect
      */
-    public transient static final byte TYPE_UDP_CONNECT = 0x09;
+    public transient static final byte TYPE_TCP_OVER_UDP_CONNECT = 0x09;
+
+
+    /**
+     * UDP to UDP 点对点链接
+     */
+    public transient static final byte TYPE_UDP_TO_UDP_CONNECT = 0x013;
 
 
     /**
      * UDP数据传输
      */
-    public static final byte P_TYPE_TRANSFER_UDP = 0X08;
+    public static final byte P_TYPE_TRANSFER_TCP_OVER_UDP = 0X08;
+
 
     /**
      * 消息类型

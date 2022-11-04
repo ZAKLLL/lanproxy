@@ -5,10 +5,12 @@ import java.util.Arrays;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 
+import io.netty.channel.socket.nio.NioDatagramChannel;
 import org.fengfei.lanproxy.client.handlers.ClientChannelHandler;
 import org.fengfei.lanproxy.client.handlers.RealServerChannelHandler;
-import org.fengfei.lanproxy.client.handlers.UdpRealServerChannelHandler;
+import org.fengfei.lanproxy.client.udp.realChannelHandler.TcpOverUdpRealServerChannelHandler;
 import org.fengfei.lanproxy.client.listener.ChannelStatusListener;
+import org.fengfei.lanproxy.client.udp.realChannelHandler.UdpToUdpRealServerChannelHandler;
 import org.fengfei.lanproxy.common.Config;
 import org.fengfei.lanproxy.common.container.Container;
 import org.fengfei.lanproxy.common.container.ContainerHelper;
@@ -50,6 +52,10 @@ public class ProxyClientContainer implements Container, ChannelStatusListener {
 
     private Bootstrap realServerBootstrap;
 
+
+    private Bootstrap tcpOverUdpRealServerBootstrap;
+
+    //udp p2p
     private Bootstrap udpRealServerBootstrap;
 
     private Config config = Config.getInstance();
@@ -60,6 +66,8 @@ public class ProxyClientContainer implements Container, ChannelStatusListener {
 
     public ProxyClientContainer() {
         workerGroup = new NioEventLoopGroup();
+
+        /*------------tcp 访问目标服务器-------------------*/
         realServerBootstrap = new Bootstrap();
         realServerBootstrap.group(workerGroup);
         realServerBootstrap.channel(NioSocketChannel.class);
@@ -70,17 +78,32 @@ public class ProxyClientContainer implements Container, ChannelStatusListener {
             }
         });
 
-        udpRealServerBootstrap = new Bootstrap();
-        udpRealServerBootstrap.group(workerGroup);
-        udpRealServerBootstrap.channel(NioSocketChannel.class);
-        udpRealServerBootstrap.handler(new ChannelInitializer<SocketChannel>() {
+
+        /*-------------------使用udp传输数据的tcp代理访问目标服务器(tcp)----------------------------*/
+        tcpOverUdpRealServerBootstrap = new Bootstrap();
+        tcpOverUdpRealServerBootstrap.group(workerGroup);
+        tcpOverUdpRealServerBootstrap.channel(NioSocketChannel.class);
+        tcpOverUdpRealServerBootstrap.handler(new ChannelInitializer<SocketChannel>() {
             @Override
             protected void initChannel(SocketChannel ch) {
-                ch.pipeline().addLast(new UdpRealServerChannelHandler());
+                ch.pipeline().addLast(new TcpOverUdpRealServerChannelHandler());
             }
         });
 
 
+        /*-------------------udp 点对点(目标服务器与客户端访问均为udp)----------------------------*/
+        udpRealServerBootstrap = new Bootstrap();
+        udpRealServerBootstrap.group(workerGroup);
+        udpRealServerBootstrap.channel(NioDatagramChannel.class);
+        udpRealServerBootstrap.handler(new ChannelInitializer<NioDatagramChannel>() {
+            @Override
+            protected void initChannel(NioDatagramChannel ch) {
+                ch.pipeline().addLast(new UdpToUdpRealServerChannelHandler());
+            }
+        });
+
+
+        /*----------------当前客户端与中心服务器的链接-----------------*/
         clientBootstrap = new Bootstrap();
         clientBootstrap.group(workerGroup);
         clientBootstrap.channel(NioSocketChannel.class);
@@ -98,7 +121,12 @@ public class ProxyClientContainer implements Container, ChannelStatusListener {
                 ch.pipeline().addLast(new ProxyMessageDecoder(MAX_FRAME_LENGTH, LENGTH_FIELD_OFFSET, LENGTH_FIELD_LENGTH, LENGTH_ADJUSTMENT, INITIAL_BYTES_TO_STRIP));
                 ch.pipeline().addLast(new ProxyMessageEncoder());
                 ch.pipeline().addLast(new IdleCheckHandler(IdleCheckHandler.READ_IDLE_TIME, IdleCheckHandler.WRITE_IDLE_TIME - 10, 0));
-                ch.pipeline().addLast(new ClientChannelHandler(realServerBootstrap, clientBootstrap, udpRealServerBootstrap, ProxyClientContainer.this));
+                ch.pipeline().addLast(new ClientChannelHandler(
+                        realServerBootstrap,
+                        clientBootstrap,
+                        tcpOverUdpRealServerBootstrap,
+                        udpRealServerBootstrap,
+                        ProxyClientContainer.this));
             }
         });
     }

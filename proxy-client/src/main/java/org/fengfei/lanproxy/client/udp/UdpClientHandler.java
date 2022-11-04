@@ -1,4 +1,4 @@
-package org.fengfei.lanproxy.client.handlers;
+package org.fengfei.lanproxy.client.udp;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -7,7 +7,6 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
-import lombok.Data;
 import lombok.SneakyThrows;
 import org.fengfei.lanproxy.protocol.Constants;
 import org.fengfei.lanproxy.protocol.ProxyMessage;
@@ -33,7 +32,9 @@ public class UdpClientHandler {
     private final Executor udpThreadPool = Executors.newCachedThreadPool();
 
 
-    private final Bootstrap udpRealServerBootStrap;
+    private final Bootstrap tcpOverUdpRealServerBootStrap;
+
+    private final Bootstrap udpToUdpRealServerBootStrap;
 
 
     static byte[] udpPolePunchingInfo = new byte[128];
@@ -48,9 +49,11 @@ public class UdpClientHandler {
         }
     }
 
-    public UdpClientHandler(Bootstrap udpRealServerBootStrap) {
+    public UdpClientHandler(Bootstrap tcpOverUdpRealServerBootStrap, Bootstrap udpRealServerBootStrap) {
 
-        this.udpRealServerBootStrap = udpRealServerBootStrap;
+        this.tcpOverUdpRealServerBootStrap = tcpOverUdpRealServerBootStrap;
+        this.udpToUdpRealServerBootStrap = udpRealServerBootStrap;
+
     }
 
     public boolean doUdpPunching(DatagramSocket socket, UdpConnectInfo connectInfo) throws IOException {
@@ -63,7 +66,7 @@ public class UdpClientHandler {
 
 
     @SneakyThrows
-    public void handleUdpProxy(ProxyMessage proxyMessage) {
+    public void handleTcpOverUdpProxy(ProxyMessage proxyMessage) {
 
 
         final UdpConnectInfo connectInfo = new UdpConnectInfo(proxyMessage);
@@ -100,20 +103,16 @@ public class UdpClientHandler {
             }, "userClient:" + connectInfo.userClientAddress).start();
 
 
-            final byte[] byteBuf = new byte[2048];
+            final byte[] byteBuf = new byte[2048 * 10];
             final DatagramPacket dataReceivedP = new DatagramPacket(byteBuf, byteBuf.length);
 
             new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    try {
-                        //设置超时时间 10s
-                        socket.setSoTimeout(1000 * 20);
-                    } catch (SocketException e) {
-                        e.printStackTrace();
-                    }
+
                     while (userClientAlive.get()) {
                         try {
+                            System.out.println("------------->开始等待数据");
                             socket.receive(dataReceivedP);
                             //判断 收到的数据是否为心跳数据
                             byte[] proxyMsgBytes = new byte[dataReceivedP.getLength()];
@@ -154,13 +153,84 @@ public class UdpClientHandler {
     }
 
     @SneakyThrows
-    public void handleUdpProxy(ChannelHandlerContext ctx, final ProxyMessage proxyMessage) {
+    public void handleTcpOverUdpProxy(ChannelHandlerContext ctx, final ProxyMessage proxyMessage) {
         udpThreadPool.execute(new Runnable() {
             @Override
             public void run() {
-                handleUdpProxy(proxyMessage);
+                handleTcpOverUdpProxy(proxyMessage);
             }
         });
+    }
+
+    @SneakyThrows
+    public void handleUdpToUdpProxy(ChannelHandlerContext ctx, final ProxyMessage proxyMessage) {
+        udpThreadPool.execute(new Runnable() {
+            @Override
+            public void run() {
+                handleUdpToUdpProxy(proxyMessage);
+            }
+        });
+    }
+
+    @SneakyThrows
+    private void handleUdpToUdpProxy(ProxyMessage proxyMessage) {
+
+
+        final UdpConnectInfo connectInfo = new UdpConnectInfo(proxyMessage);
+
+        final DatagramSocket socket = new DatagramSocket(8769);
+
+        final AtomicBoolean userClientAlive = new AtomicBoolean(true);
+
+
+        try {
+
+            //阻塞发送打洞包测试是否连接成功
+            if (!doUdpPunching(socket, connectInfo)) return;
+
+
+            final ConcurrentHashMap<String, Channel> userRealUdpServerChannelMap = new ConcurrentHashMap<>();
+
+            //todo 开启一个线程用以发送心跳
+
+            final byte[] byteBuf = new byte[2048 * 10];
+            final DatagramPacket dataReceivedP = new DatagramPacket(byteBuf, byteBuf.length);
+
+            final Channel channel = doConnectRealUdpServer(connectInfo.targetServerIp, connectInfo.targetServerPort, connectInfo.userClientAddress);
+
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        //设置超时时间 10s
+                        socket.setSoTimeout(1000 * 100);
+                    } catch (SocketException e) {
+                        e.printStackTrace();
+                    }
+                    while (userClientAlive.get()) {
+                        try {
+                            socket.receive(dataReceivedP);
+                            byte[] proxyMsgBytes = new byte[dataReceivedP.getLength()];
+                            System.arraycopy(byteBuf, dataReceivedP.getOffset(), proxyMsgBytes, 0, dataReceivedP.getLength());
+                            logger.info("user data from: " + connectInfo.userClientAddress + " to: " + connectInfo.targetServerAddress);
+                            //todo 是否可以通过netty发送数据
+                            channel.writeAndFlush(proxyMsgBytes);
+                        } catch (SocketTimeoutException timeoutException) {
+                            logger.info("user client disConnected: " + connectInfo.userClientAddress);
+                            //关闭当前线程
+                            userClientAlive.set(false);
+                            break;
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+            }).start();
+
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
 
@@ -174,7 +244,7 @@ public class UdpClientHandler {
 
     @SneakyThrows
     private Channel doConnectRealServer(final String targetServerIp, final Integer targetServerPort, final String userClientAddress, final String userId) {
-        ChannelFuture channelFuture = udpRealServerBootStrap.connect(targetServerIp, targetServerPort).addListener(new ChannelFutureListener() {
+        ChannelFuture channelFuture = tcpOverUdpRealServerBootStrap.connect(targetServerIp, targetServerPort).addListener(new ChannelFutureListener() {
             @Override
             public void operationComplete(ChannelFuture future) {
                 if (future.isSuccess()) {
@@ -188,31 +258,20 @@ public class UdpClientHandler {
         return channelFuture.channel();
     }
 
-}
-
-@Data
-class UdpConnectInfo {
-    String userClientIp;
-    Integer userClientPort;
-    String targetServerIp;
-    Integer targetServerPort;
-    String userClientAddress;
-    String targetServerAddress;
-
-    public UdpConnectInfo(ProxyMessage udpConnectInfoMsg) {
-
-        String requestInfo = new String(udpConnectInfoMsg.getData());
-        final String[] ipInfos = requestInfo.split("-");
-        final String[] userClientIpInfo = ipInfos[0].split(":");
-        final String[] targetServerIpInfo = ipInfos[1].split(":");
-
-        this.userClientIp = userClientIpInfo[0];
-        this.userClientPort = Integer.parseInt(userClientIpInfo[1]);
-
-        this.targetServerIp = targetServerIpInfo[0];
-        this.targetServerPort = Integer.parseInt(targetServerIpInfo[1]);
-
-        this.userClientAddress = ipInfos[0];
-        this.targetServerAddress = ipInfos[1];
+    @SneakyThrows
+    private Channel doConnectRealUdpServer(final String targetServerIp, final Integer targetServerPort, final String userClientAddress) {
+        ChannelFuture channelFuture = udpToUdpRealServerBootStrap.connect(targetServerIp, targetServerPort).addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture future) {
+                if (future.isSuccess()) {
+                    Channel channel = future.channel();
+                    channel.attr(Constants.UDP_USER_CLIENT_IP).set(userClientAddress);
+                }
+            }
+        });
+        channelFuture.get();
+        return channelFuture.channel();
     }
+
 }
+
