@@ -31,11 +31,11 @@ public class ClientChannelHandler extends SimpleChannelInboundHandler<ProxyMessa
 
     private UdpClientHandler udpClientHandler;
 
-    public ClientChannelHandler(Bootstrap realServerBootstrap, Bootstrap proxyBootstrap, Bootstrap tcpOverUdpRealServerBootStrap, Bootstrap udpRealServerBootStrap, ChannelStatusListener channelStatusListener) {
+    public ClientChannelHandler(Bootstrap realServerBootstrap, Bootstrap proxyBootstrap, Bootstrap tcpOverUdpRealServerBootStrap, ChannelStatusListener channelStatusListener) {
         this.realServerBootstrap = realServerBootstrap;
         this.proxyBootstrap = proxyBootstrap;
         this.channelStatusListener = channelStatusListener;
-        this.udpClientHandler = new UdpClientHandler(tcpOverUdpRealServerBootStrap, udpRealServerBootStrap);
+        this.udpClientHandler = new UdpClientHandler(tcpOverUdpRealServerBootStrap);
     }
 
     @Override

@@ -1,4 +1,4 @@
-package org.fengfei.lanproxy.client.udp;
+package org.fengfei.lanproxy.client.udp.userClient;
 
 import lombok.SneakyThrows;
 import org.fengfei.lanproxy.protocol.ProxyMessage;

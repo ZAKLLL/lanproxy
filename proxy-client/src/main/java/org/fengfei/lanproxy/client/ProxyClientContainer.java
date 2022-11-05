@@ -1,16 +1,15 @@
 package org.fengfei.lanproxy.client;
 
-import java.util.Arrays;
-
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLEngine;
-
-import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.ssl.SslHandler;
 import org.fengfei.lanproxy.client.handlers.ClientChannelHandler;
 import org.fengfei.lanproxy.client.handlers.RealServerChannelHandler;
-import org.fengfei.lanproxy.client.udp.realChannelHandler.TcpOverUdpRealServerChannelHandler;
 import org.fengfei.lanproxy.client.listener.ChannelStatusListener;
-import org.fengfei.lanproxy.client.udp.realChannelHandler.UdpToUdpRealServerChannelHandler;
+import org.fengfei.lanproxy.client.udp.realChannelHandler.TcpOverUdpRealServerChannelHandler;
 import org.fengfei.lanproxy.common.Config;
 import org.fengfei.lanproxy.common.container.Container;
 import org.fengfei.lanproxy.common.container.ContainerHelper;
@@ -21,16 +20,9 @@ import org.fengfei.lanproxy.protocol.ProxyMessageEncoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.ssl.SslHandler;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
+import java.util.Arrays;
 
 public class ProxyClientContainer implements Container, ChannelStatusListener {
 
@@ -55,8 +47,6 @@ public class ProxyClientContainer implements Container, ChannelStatusListener {
 
     private Bootstrap tcpOverUdpRealServerBootstrap;
 
-    //udp p2p
-    private Bootstrap udpRealServerBootstrap;
 
     private Config config = Config.getInstance();
 
@@ -91,16 +81,6 @@ public class ProxyClientContainer implements Container, ChannelStatusListener {
         });
 
 
-        /*-------------------udp 点对点(目标服务器与客户端访问均为udp)----------------------------*/
-        udpRealServerBootstrap = new Bootstrap();
-        udpRealServerBootstrap.group(workerGroup);
-        udpRealServerBootstrap.channel(NioDatagramChannel.class);
-        udpRealServerBootstrap.handler(new ChannelInitializer<NioDatagramChannel>() {
-            @Override
-            protected void initChannel(NioDatagramChannel ch) {
-                ch.pipeline().addLast(new UdpToUdpRealServerChannelHandler());
-            }
-        });
 
 
         /*----------------当前客户端与中心服务器的链接-----------------*/
@@ -125,7 +105,6 @@ public class ProxyClientContainer implements Container, ChannelStatusListener {
                         realServerBootstrap,
                         clientBootstrap,
                         tcpOverUdpRealServerBootstrap,
-                        udpRealServerBootstrap,
                         ProxyClientContainer.this));
             }
         });

@@ -1,4 +1,4 @@
-package org.fengfei.lanproxy.client.udp;
+package org.fengfei.lanproxy.client.udp.userClient;
 
 import lombok.SneakyThrows;
 import org.fengfei.lanproxy.protocol.ProxyMessage;
@@ -12,6 +12,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * 基于udp的tcp流量代理
+ */
 public class TcpOverUdpClient {
 
     private static final AtomicLong userIdProducer = new AtomicLong(0);

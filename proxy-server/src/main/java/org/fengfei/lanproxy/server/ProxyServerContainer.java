@@ -228,7 +228,7 @@ public class ProxyServerContainer implements Container, ConfigChangedListener {
 
     public static void main(String[] args) {
         //proxyServer 代理转发  WebConfig web后台处理
-        ContainerHelper.start(Arrays.asList(new ProxyServerContainer(), new WebConfigContainer(), new HttpProxyServerContainer(), new UdpProxyServerContainer()));
+        ContainerHelper.start(Arrays.asList(new ProxyServerContainer(), new WebConfigContainer(), new UdpProxyServerContainer()));
     }
 
 

@@ -54,6 +54,7 @@ public class WebConfigContainer implements Container {
                     ProxyConfig.getInstance().getConfigServerPort()).get();
             logger.info("http web config server start on port " + ProxyConfig.getInstance().getConfigServerPort());
         } catch (Exception ex) {
+            logger.error("端口占用------------>"+ProxyConfig.getInstance().getConfigServerPort());
             throw new RuntimeException(ex);
         }
 

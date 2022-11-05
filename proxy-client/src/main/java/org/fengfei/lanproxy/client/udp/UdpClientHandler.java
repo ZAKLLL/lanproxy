@@ -34,7 +34,6 @@ public class UdpClientHandler {
 
     private final Bootstrap tcpOverUdpRealServerBootStrap;
 
-    private final Bootstrap udpToUdpRealServerBootStrap;
 
 
     static byte[] udpPolePunchingInfo = new byte[128];
@@ -49,10 +48,9 @@ public class UdpClientHandler {
         }
     }
 
-    public UdpClientHandler(Bootstrap tcpOverUdpRealServerBootStrap, Bootstrap udpRealServerBootStrap) {
+    public UdpClientHandler(Bootstrap tcpOverUdpRealServerBootStrap) {
 
         this.tcpOverUdpRealServerBootStrap = tcpOverUdpRealServerBootStrap;
-        this.udpToUdpRealServerBootStrap = udpRealServerBootStrap;
 
     }
 
@@ -196,7 +194,7 @@ public class UdpClientHandler {
             final byte[] byteBuf = new byte[2048 * 10];
             final DatagramPacket dataReceivedP = new DatagramPacket(byteBuf, byteBuf.length);
 
-            final Channel channel = doConnectRealUdpServer(connectInfo.targetServerIp, connectInfo.targetServerPort, connectInfo.userClientAddress);
+
 
             new Thread(new Runnable() {
                 @Override
@@ -212,9 +210,18 @@ public class UdpClientHandler {
                             socket.receive(dataReceivedP);
                             byte[] proxyMsgBytes = new byte[dataReceivedP.getLength()];
                             System.arraycopy(byteBuf, dataReceivedP.getOffset(), proxyMsgBytes, 0, dataReceivedP.getLength());
-                            logger.info("user data from: " + connectInfo.userClientAddress + " to: " + connectInfo.targetServerAddress);
+
+                            logger.info("user data from: " + dataReceivedP.getPort());
+
+                            //数据包如果是从目标服务器来的,直接返回给客户端
+                            if (dataReceivedP.getPort()==(connectInfo.getTargetServerPort())) {
+                                socket.send(new DatagramPacket(proxyMsgBytes, proxyMsgBytes.length, new InetSocketAddress(connectInfo.userClientIp, connectInfo.userClientPort)));
+                            } else {
+                                socket.send(new DatagramPacket(proxyMsgBytes, proxyMsgBytes.length, new InetSocketAddress(connectInfo.targetServerIp, connectInfo.targetServerPort)));
+                            }
+
                             //todo 是否可以通过netty发送数据
-                            channel.writeAndFlush(proxyMsgBytes);
+//                            channel.writeAndFlush(proxyMsgBytes);
                         } catch (SocketTimeoutException timeoutException) {
                             logger.info("user client disConnected: " + connectInfo.userClientAddress);
                             //关闭当前线程
@@ -258,20 +265,6 @@ public class UdpClientHandler {
         return channelFuture.channel();
     }
 
-    @SneakyThrows
-    private Channel doConnectRealUdpServer(final String targetServerIp, final Integer targetServerPort, final String userClientAddress) {
-        ChannelFuture channelFuture = udpToUdpRealServerBootStrap.connect(targetServerIp, targetServerPort).addListener(new ChannelFutureListener() {
-            @Override
-            public void operationComplete(ChannelFuture future) {
-                if (future.isSuccess()) {
-                    Channel channel = future.channel();
-                    channel.attr(Constants.UDP_USER_CLIENT_IP).set(userClientAddress);
-                }
-            }
-        });
-        channelFuture.get();
-        return channelFuture.channel();
-    }
 
 }
 

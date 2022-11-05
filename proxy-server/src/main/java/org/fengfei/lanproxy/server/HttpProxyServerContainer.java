@@ -48,6 +48,7 @@ public class HttpProxyServerContainer implements Container {
                     ProxyConfig.getInstance().getHttpServerProxyPort()).get();
             logger.info("http proxy server start on port " + ProxyConfig.getInstance().getHttpServerProxyPort());
         } catch (Exception ex) {
+            logger.error("端口占用------------>"+ProxyConfig.getInstance().getConfigServerPort());
             throw new RuntimeException(ex);
         }
     }
